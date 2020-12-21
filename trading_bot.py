@@ -50,9 +50,10 @@ class Stock():
         stock = cw.markets.get(self.marketSymbol, ohlc=True, periods=["1m"]) 
         #Each candle is a list of [close_timestamp, open, high, low, close, volume, volume_quote]
         high = 0.0
-        for data in stock.of_1m:
-            if data[2] > high:
-                high = data[2]
+        #Collates the last 360 minutes of stock data (last 6 hours).
+        for stockIndex in range(len(stock.of_1m) - 640):
+            if stock.of_1m[-(stockIndex + 1)][2] > high:
+                high = stock.of_1m[-(stockIndex + 1)][2]
         self.price = stock.of_1m[-1][4]
         self.xTimeHigh = high
         self.lastUpdate = stock.of_1m[-1][0]
@@ -128,6 +129,8 @@ class PreviousHigh(Strategy):
             self.tempProfit = self.stock.price * position.quanitiy - position.price * position.quantity
             self.tempCompletedTrade = CompletedTrade(self.stock, self, self.tempProfit, position.quantity, position.price, position.tradeType, position.entryDateTime, self.stock.price, 'sell', datetime.now())
             self.player.completedTrades.append(self.tempCompletedTrade)
+            self.player.CalculateProfit()
+            print(self.player.profit)
             print('Exit')
         else:
             self.UpdateStockLoss(position)
