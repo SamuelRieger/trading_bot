@@ -3,7 +3,12 @@ import time
 import sched
 import cryptowatch as cw
 from datetime import datetime, timedelta, date
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+apiKey = os.getenv('API_KEY_PUBLIC')
+cw.api_key = apiKey
 allStocks = []
 class Player():
     def __init__(self, name, allocatedCapital):
