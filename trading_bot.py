@@ -24,8 +24,8 @@ class Player():
             return -1
         self.availableCapital -= proposedCapital
         return proposedCapital
-    def AddStrategie(self, strategie):
-        self.strategies.append(strategie)
+    def AddStrategy(self, strategy):
+        self.strategies.append(strategy)
     def AddPosition(self, position):
         self.positions.append(position)
     def AddCompletedTrade(self, completedTrade):
@@ -50,8 +50,8 @@ class Stock():
         stock = cw.markets.get(self.marketSymbol, ohlc=True, periods=["1m"]) 
         #Each candle is a list of [close_timestamp, open, high, low, close, volume, volume_quote]
         high = 0.0
-        #Collates the last 360 minutes of stock data (last 6 hours).
-        for stockIndex in range(len(stock.of_1m) - 640):
+        #Collates the last 360 (-640) minutes of stock data (last 6 hours).
+        for stockIndex in range(len(stock.of_1m) - 940):
             if stock.of_1m[-(stockIndex + 1)][2] > high:
                 high = stock.of_1m[-(stockIndex + 1)][2]
         self.price = stock.of_1m[-1][4]
@@ -65,6 +65,7 @@ def UpdateAllStocks():
 class Position():
    def __init__(self, stock, strategy, quantity, price, stopLoss, tradeType, entryDateTime):
        self.stock = stock
+       self.strategy = strategy
        self.quantity = quantity
        self.price = price
        self.stopLoss = stopLoss
@@ -93,8 +94,8 @@ class PreviousHigh(Strategy):
     def __init__(self, player, allocatedCapital, stock):
         super().__init__(player, allocatedCapital, stock)
         self.buyCapital = 10000
-        self.profitPercentage = 0.02
-        self.stopLossPercentage = 0.02
+        self.profitPercentage = 0.005
+        self.stopLossPercentage = 0.005
         self.availableCapital = allocatedCapital
     def AllocateCapital(self, proposedCapital):
         if self.availableCapital - proposedCapital < 0:
@@ -107,6 +108,7 @@ class PreviousHigh(Strategy):
     def UpdateStockLoss(self, position):
         if self.stock.price * (1 - self.stopLossPercentage) > position.stopLoss:
             position.stopLoss = self.stock.price * (1 - self.stopLossPercentage)
+            print('Stock loss updated.')
     def CheckEntry(self):
         #Check if the conditions are met for an entry, check if there is enough capital
         #If conditions are met add to player positions 
@@ -126,7 +128,7 @@ class PreviousHigh(Strategy):
         #If they are, add to completed trades Player.AddCompleteTrade, calculate profit from current trade and call Player.AddProfit
         #If not, UpdateStockLoss(position)
         if position.price * (1 + self.profitPercentage) <= self.stock.price or position.price * (1 - self.stopLossPercentage) >= self.stock.price:
-            self.tempProfit = self.stock.price * position.quanitiy - position.price * position.quantity
+            self.tempProfit = self.stock.price * position.quantity - position.price * position.quantity
             self.tempCompletedTrade = CompletedTrade(self.stock, self, self.tempProfit, position.quantity, position.price, position.tradeType, position.entryDateTime, self.stock.price, 'sell', datetime.now())
             self.player.completedTrades.append(self.tempCompletedTrade)
             self.player.CalculateProfit()
@@ -135,8 +137,8 @@ class PreviousHigh(Strategy):
         else:
             self.UpdateStockLoss(position)
 
-testStrategieCheck = True
-testStrategieCounter = 0
+testStrategyCheck = True
+testStrategyCounter = 0
 def test():
     testPlayer = Player('Samuel', 10000)
     testStock = Stock('BTCUSD', 'KRAKEN')
@@ -144,25 +146,28 @@ def test():
     if testCapital == -1:
         print('Not enough capital.')
         return
-    testStrategie = PreviousHigh(testPlayer, testCapital, testStock)
-    testPlayer.AddStrategie(testStrategie)
+    testStrategy = PreviousHigh(testPlayer, testCapital, testStock)
+    testPlayer.AddStrategy(testStrategy)
     s = sched.scheduler(time.time, time.sleep)
-    def StrategieLoop(sc): 
-        for strategie in testPlayer.strategies:
-            strategie.UpdateStrategy()
-            strategie.CheckEntry()
+    def StrategyLoop(sc): 
+        for strategy in testPlayer.strategies:
+            strategy.UpdateStrategy()
+            strategy.CheckEntry()
             
         for position in testPlayer.positions:
-            position.strategie.CheckExit(position)
+            position.strategy.CheckExit(position)
 
         print('***Stock Check***')
-        print(f'Current Price: {strategie.stock.price}')
-        print(f'Current High: {strategie.stock.xTimeHigh}')
-        global testStrategieCheck
-        if testStrategieCheck == True:
-            s.enter(10, 1, StrategieLoop, (sc,))
-
-    s.enter(10, 1, StrategieLoop, (s,))
+        print(f'Current Price: {strategy.stock.price}')
+        print(f'Previous High: {strategy.stock.xTimeHigh}')
+        print(f'Total Trades: {len(strategy.player.completedTrades)}')
+        print(f'Current Positions: {len(strategy.player.positions)}')
+        print(f'Current Profit: {strategy.player.profit}')
+        global testStrategyCheck
+        if testStrategyCheck == True:
+            s.enter(10, 1, StrategyLoop, (sc,))
+                  
+    s.enter(10, 1, StrategyLoop, (s,))
     s.run()
+test() 
 
-test()
