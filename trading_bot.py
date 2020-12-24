@@ -1,13 +1,18 @@
-
 import time
 import sched
 import cryptowatch as cw
 from datetime import datetime, timedelta, date
 import os
 from dotenv import load_dotenv
+from nomics import Nomics
+
+apiKey = os.getenv('API_KEY')
+nomics = Nomics(apiKey)
+
+markets = nomics.Markets.get_markets(exchange = 'binance')
+print(markets)
 
 load_dotenv()
-apiKey = os.getenv('API_KEY_PUBLIC')
 cw.api_key = apiKey
 allStocks = []
 class Player():
@@ -20,7 +25,7 @@ class Player():
         self.completedTrades = []
         self.profit = 0
     def AllocateCapital(self, proposedCapital):
-        if self.availableCapital - proposedCapital < 0:
+        if self.availableCapital - proposedCapital < 0 or self.availableCapital == 0:
             return -1
         self.availableCapital -= proposedCapital
         return proposedCapital
@@ -28,6 +33,8 @@ class Player():
         self.strategies.append(strategy)
     def AddPosition(self, position):
         self.positions.append(position)
+    def RemovePosition(self, position):
+        self.positions.remove(position)
     def AddCompletedTrade(self, completedTrade):
         self.completedTrades.append(completedTrade)
     def AddProfit(self, profit):
@@ -63,7 +70,7 @@ def UpdateAllStocks():
         stock.Update()
 
 class Position():
-   def __init__(self, stock, strategy, quantity, price, stopLoss, tradeType, entryDateTime):
+    def __init__(self, stock, strategy, quantity, price, stopLoss, tradeType, entryDateTime):
        self.stock = stock
        self.strategy = strategy
        self.quantity = quantity
@@ -72,10 +79,14 @@ class Position():
        self.tradeType = tradeType
        self.entryDateTime = entryDateTime
 
+    def CompletePosition(self, player):
+        player.RemovePosition(self)
+
 class CompletedTrade():
     def __init__(self, stock, strategy, profit, quantity, entryPrice, entryTradeType, entryDateTime, exitPrice, exitTradeType, exitDateTime):
         self.stock = stock
         self.strategy = strategy
+        self.profit = profit
         self.quantity = quantity 
         self.entryPrice = entryPrice
         self.entryTradeType = entryTradeType
@@ -93,15 +104,16 @@ class Strategy():
 class PreviousHigh(Strategy):
     def __init__(self, player, allocatedCapital, stock):
         super().__init__(player, allocatedCapital, stock)
-        self.buyCapital = 10000
         self.profitPercentage = 0.005
         self.stopLossPercentage = 0.005
         self.availableCapital = allocatedCapital
     def AllocateCapital(self, proposedCapital):
-        if self.availableCapital - proposedCapital < 0:
+        if self.availableCapital - proposedCapital < 0 or self.availableCapital == 0:
             return -1
         self.availableCapital -= proposedCapital
         return proposedCapital
+    def ReturnCapital(self, returnedCapital):
+       self.availableCapital = returnedCapital 
     def UpdateStrategy(self):
         self.previousHigh = self.stock.xTimeHigh
         self.stock.Update()
@@ -113,32 +125,32 @@ class PreviousHigh(Strategy):
         #Check if the conditions are met for an entry, check if there is enough capital
         #If conditions are met add to player positions 
         if self.previousHigh <= self.stock.price:
-            if self.availableCapital > 0: 
-                self.tempCapital = self.AllocateCapital(self.availableCapital)
-                if self.tempCapital == -1:
-                    print('Not enough capital.')
-                    return
-                self.tempQuantity = self.tempCapital / self.stock.price
-                self.tempStopLoss = self.stock.price * (1 - self.stopLossPercentage)
-                self.tempPosition = Position(self.stock, self, self.tempQuantity, self.stock.price, self.tempStopLoss, 'buy', datetime.now())
-                self.player.positions.append(self.tempPosition) 
-                print('Entry')
+            self.tempCapital = self.AllocateCapital(self.availableCapital)
+            if self.tempCapital == -1:
+                print('Not enough capital.')
+                return
+            self.tempQuantity = self.tempCapital / self.stock.price
+            self.tempStopLoss = self.stock.price * (1 - self.stopLossPercentage)
+            self.tempPosition = Position(self.stock, self, self.tempQuantity, self.stock.price, self.tempStopLoss, 'buy', datetime.now())
+            self.player.positions.append(self.tempPosition) 
+            print('Entry')
     def CheckExit(self, position):
         #Check if the conditions are met for an exit, if stop loss is hit or percentage profit reaches maximum
         #If they are, add to completed trades Player.AddCompleteTrade, calculate profit from current trade and call Player.AddProfit
         #If not, UpdateStockLoss(position)
         if position.price * (1 + self.profitPercentage) <= self.stock.price or position.price * (1 - self.stopLossPercentage) >= self.stock.price:
             self.tempProfit = self.stock.price * position.quantity - position.price * position.quantity
+            self.tempPositionExitPrice = self.stock.price * position.quantity
             self.tempCompletedTrade = CompletedTrade(self.stock, self, self.tempProfit, position.quantity, position.price, position.tradeType, position.entryDateTime, self.stock.price, 'sell', datetime.now())
             self.player.completedTrades.append(self.tempCompletedTrade)
+            position.CompletePosition(self.player)
+            self.ReturnCapital(self.tempPositionExitPrice)
             self.player.CalculateProfit()
             print(self.player.profit)
             print('Exit')
         else:
             self.UpdateStockLoss(position)
 
-testStrategyCheck = True
-testStrategyCounter = 0
 def test():
     testPlayer = Player('Samuel', 10000)
     testStock = Stock('BTCUSD', 'KRAKEN')
@@ -148,6 +160,8 @@ def test():
         return
     testStrategy = PreviousHigh(testPlayer, testCapital, testStock)
     testPlayer.AddStrategy(testStrategy)
+    testStrategyCheck = True
+    testStrategyCounter = 0
     s = sched.scheduler(time.time, time.sleep)
     def StrategyLoop(sc): 
         for strategy in testPlayer.strategies:
@@ -163,7 +177,6 @@ def test():
         print(f'Total Trades: {len(strategy.player.completedTrades)}')
         print(f'Current Positions: {len(strategy.player.positions)}')
         print(f'Current Profit: {strategy.player.profit}')
-        global testStrategyCheck
         if testStrategyCheck == True:
             s.enter(10, 1, StrategyLoop, (sc,))
                   
