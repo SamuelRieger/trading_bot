@@ -6,15 +6,14 @@ import os
 from dotenv import load_dotenv
 from nomics import Nomics
 
+load_dotenv()
 apiKey = os.getenv('API_KEY')
 nomics = Nomics(apiKey)
 
-markets = nomics.Markets.get_markets(exchange = 'binance')
-print(markets)
+print(nomics.Currencies.get_currencies(ids = "BTC", interval = "1h"))
 
-load_dotenv()
-cw.api_key = apiKey
 allStocks = []
+
 class Player():
     def __init__(self, name, allocatedCapital):
         self.name = name
@@ -46,24 +45,18 @@ class Player():
         self.profit = self.tempProfit
 
 class Stock():
-    def __init__(self, symbol, market):
-        self.symbol = symbol #BTCUSD
-        self.market = market #KRAKEN
-        self.marketSymbol = f'{market.upper()}:{symbol.upper()}'
+    def __init__(self, ticker):
+        self.ticker = ticker #BTC
+        self.xTimeHigh = 0.0
         self.Update()
         allStocks.append(self)
     def Update(self):
-        #Update stock data using symbol
-        stock = cw.markets.get(self.marketSymbol, ohlc=True, periods=["1m"]) 
-        #Each candle is a list of [close_timestamp, open, high, low, close, volume, volume_quote]
-        high = 0.0
-        #Collates the last 360 (-640) minutes of stock data (last 6 hours).
-        for stockIndex in range(len(stock.of_1m) - 940):
-            if stock.of_1m[-(stockIndex + 1)][2] > high:
-                high = stock.of_1m[-(stockIndex + 1)][2]
-        self.price = stock.of_1m[-1][4]
-        self.xTimeHigh = high
-        self.lastUpdate = stock.of_1m[-1][0]
+        #Update stock data using ticker
+        stock = nomics.Currencies.get_currencies(ids = self.ticker, interval = '1h') 
+        if float(stock[0]['price']) > self.xTimeHigh:
+            self.xTimeHigh = float(stock[0]['price'])
+        self.price = float(stock[0]['price'])
+        self.lastUpdateTime = stock[0]['price_timestamp'] 
 
 def UpdateAllStocks():
     for stock in allStocks:
@@ -153,8 +146,9 @@ class PreviousHigh(Strategy):
 
 def test():
     testPlayer = Player('Samuel', 10000)
-    testStock = Stock('BTCUSD', 'KRAKEN')
+    testStock = Stock('BTC')
     testCapital = testPlayer.AllocateCapital(testPlayer.allocatedCapital)
+    testCheckInterval = 15
     if testCapital == -1:
         print('Not enough capital.')
         return
@@ -178,9 +172,9 @@ def test():
         print(f'Current Positions: {len(strategy.player.positions)}')
         print(f'Current Profit: {strategy.player.profit}')
         if testStrategyCheck == True:
-            s.enter(10, 1, StrategyLoop, (sc,))
+            s.enter(testCheckInterval, 1, StrategyLoop, (sc,))
                   
-    s.enter(10, 1, StrategyLoop, (s,))
+    s.enter(testCheckInterval, 1, StrategyLoop, (s,))
     s.run()
 test() 
 
