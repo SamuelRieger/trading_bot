@@ -1,6 +1,5 @@
 import time
 import sched
-import cryptowatch as cw
 from datetime import datetime, timedelta, date
 import os
 from dotenv import load_dotenv
@@ -48,13 +47,17 @@ class Stock():
     def __init__(self, ticker):
         self.ticker = ticker #BTC
         self.xTimeHigh = 0.0
+        self.updatesSinceLastHigh = -1
         self.Update()
         allStocks.append(self)
     def Update(self):
         #Update stock data using ticker
-        stock = nomics.Currencies.get_currencies(ids = self.ticker, interval = '1h') 
-        if float(stock[0]['price']) > self.xTimeHigh:
+        stock = nomics.Currencies.get_currencies(ids = self.ticker, interval = '1h')
+        if float(stock[0]['price']) > self.xTimeHigh or self.updatesSinceLastHigh == 180:
+            self.updatesSinceLastHigh = 0
             self.xTimeHigh = float(stock[0]['price'])
+        else:
+            self.updatesSinceLastHigh += 1
         self.price = float(stock[0]['price'])
         self.lastUpdateTime = stock[0]['price_timestamp'] 
 
@@ -117,16 +120,17 @@ class PreviousHigh(Strategy):
     def CheckEntry(self):
         #Check if the conditions are met for an entry, check if there is enough capital
         #If conditions are met add to player positions 
-        if self.previousHigh <= self.stock.price:
-            self.tempCapital = self.AllocateCapital(self.availableCapital)
-            if self.tempCapital == -1:
-                print('Not enough capital.')
-                return
-            self.tempQuantity = self.tempCapital / self.stock.price
-            self.tempStopLoss = self.stock.price * (1 - self.stopLossPercentage)
-            self.tempPosition = Position(self.stock, self, self.tempQuantity, self.stock.price, self.tempStopLoss, 'buy', datetime.now())
-            self.player.positions.append(self.tempPosition) 
-            print('Entry')
+        if self.stock.updatesSinceLastHigh > 1:
+            if self.previousHigh <= self.stock.price:
+                self.tempCapital = self.AllocateCapital(self.availableCapital)
+                if self.tempCapital == -1:
+                    print('Not enough capital.')
+                    return
+                self.tempQuantity = self.tempCapital / self.stock.price
+                self.tempStopLoss = self.stock.price * (1 - self.stopLossPercentage)
+                self.tempPosition = Position(self.stock, self, self.tempQuantity, self.stock.price, self.tempStopLoss, 'buy', datetime.now())
+                self.player.positions.append(self.tempPosition) 
+                print('Entry')
     def CheckExit(self, position):
         #Check if the conditions are met for an exit, if stop loss is hit or percentage profit reaches maximum
         #If they are, add to completed trades Player.AddCompleteTrade, calculate profit from current trade and call Player.AddProfit
@@ -148,7 +152,7 @@ def test():
     testPlayer = Player('Samuel', 10000)
     testStock = Stock('BTC')
     testCapital = testPlayer.AllocateCapital(testPlayer.allocatedCapital)
-    testCheckInterval = 15
+    testCheckInterval = 20
     if testCapital == -1:
         print('Not enough capital.')
         return
